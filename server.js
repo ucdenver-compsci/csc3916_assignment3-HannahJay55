@@ -70,21 +70,141 @@ router.post('/signin', function (req, res) {
 
     User.findOne({ username: userNew.username }).select('name username password').exec(function(err, user) {
         if (err) {
+            err.debug = "Debug";
             res.send(err);
+        } else {
+            user.comparePassword(userNew.password, function(isMatch) {
+                if (isMatch) {
+                    var userToken = { id: user.id, username: user.username };
+                    var token = jwt.sign(userToken, process.env.SECRET_KEY);
+                    res.json ({success: true, token: 'JWT ' + token});
+                }
+                else {
+                    res.status(401).send({success: false, msg: 'Authentication failed.'});
+                }
+            })
         }
 
-        user.comparePassword(userNew.password, function(isMatch) {
-            if (isMatch) {
-                var userToken = { id: user.id, username: user.username };
-                var token = jwt.sign(userToken, process.env.SECRET_KEY);
-                res.json ({success: true, token: 'JWT ' + token});
-            }
-            else {
-                res.status(401).send({success: false, msg: 'Authentication failed.'});
-            }
-        })
+
     })
 });
+
+app.get("/movies/:title?", authJwtController.isAuthenticated, (req, res) => {
+    res = res.status(200);
+    var o = getJSONObjectForMovieRequirement(req);
+    if (req.get('Content-Type')) {
+        res = res.type(req.get('Content-Type'));
+    }
+    console.log(req.params);
+    if (req.params.title) {
+        Movie.find({title: req.params.title}, function(err, movies) {
+            if (err) {
+                return res.send(err);
+            }
+            res.send(movies);
+        });
+    } else {
+        Movie.find({}, function(err, movies) {
+            if (err) {
+                return res.send(err);
+            }
+            res.send(movies);
+        });
+    }
+});
+
+app.post("/movies/:title?", authJwtController.isAuthenticated, (req, res) => { //save movie
+    res = res.status(200);
+    var o = getJSONObjectForMovieRequirement(req);
+    if (req.get('Content-Type')) {
+        res = res.type(req.get('Content-Type'));
+    }
+    console.log(req.params);
+    if (req.params.title) {
+        o.body = {success: false, msg: 'Title query parameter invalid for POST'};
+    } else {
+        if (!req.body.title || !req.body.releaseDate || !req.body.genre || req.body.actors.length < 3) {
+            o.body = {success: false, msg: 'Save failed, insufficient information.'};
+        } else {
+            var newMovie = new Movie();
+            newMovie.title = req.body.title;
+            newMovie.releaseDate = new Date(req.body.releaseDate);
+            newMovie.genre = req.body.genre;
+            newMovie.actors = req.body.actors;
+
+            newMovie.save(function (err) {
+                if (err) {
+                    o.body = err;
+                } else {
+                    o.body = {success: true, msg: 'Successfully saved movie.'};
+                }
+
+            });
+        }
+    }
+    res.json(o);
+});
+
+app.put("/movies/:title?", authJwtController.isAuthenticated, (req, res) => { //update movie
+    res = res.status(200);
+    var o = getJSONObjectForMovieRequirement(req);
+    if (req.get('Content-Type')) {
+        res = res.type(req.get('Content-Type'));
+    }
+    console.log(req.params);
+    if (req.params.title) {
+        Movie.findOne({ title: req.body.title }, function(err, movie) {
+            if (err || !movie) {
+                o.body = {success: false, msg: 'Movie not found'};
+            } else {
+                movie.title = req.body.title;
+                movie.releaseDate = new Date(req.body.releaseDate);
+                movie.genre = req.body.genre;
+                movie.actors = req.body.actors;
+
+                movie.save(function(err){
+                    if (err) {
+                        o.body = err;
+                    } else {
+                        o.body = {success: true, msg: 'Successfully updated movie.'};
+                    }
+
+                });
+            }
+        });
+    } else {
+        o.body = {success: false, msg: 'Title query parameter required for PUT'};
+    }
+
+    res.json(o);
+});
+
+app.delete("/movies/:title?", authJwtController.isAuthenticated, async (req, res) => { //delete movie
+    console.log(req.body);
+    res = res.status(200);
+    var o = getJSONObjectForMovieRequirement(req);
+    if (req.get('Content-Type')) {
+        res = res.type(req.get('Content-Type'));
+    }
+    if (!req.params.title) {
+        o.body = {success: false, msg: 'Title query parameter required for DELETE'}
+    } else {
+        var record = await Movie.deleteOne({title: req.params.title});
+        console.log(record);
+        if (record.deletedCount) {
+            o.body = {success: true, msg: 'Movie deleted.'};
+        } else {
+            o.body = {success: false, msg: 'Movie not found.'};
+        }
+    }
+
+    res.json(o);
+})
+
+
+
+
+
 
 app.use('/', router);
 app.listen(process.env.PORT || 8080);
